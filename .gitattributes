@@ -1,0 +1,13 @@
+# Developed on Windows, executed in Linux containers. A shell script checked out
+# with CRLF fails inside the image with "bad interpreter: /bin/bash^M", and the
+# Dockerfiles copy straight from the working tree, so these must stay LF on disk
+# regardless of the platform doing the checkout.
+* text=auto
+
+*.sh    text eol=lf
+Dockerfile text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+*.png binary
+*.pdf binary

@@ -1,0 +1,12 @@
+# Pinned exactly: the wheelhouse carried across the air gap must be reproducible.
+# Regenerate with: pip-compile, or `pip freeze` from a verified environment.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pydantic==2.10.4
+pydantic-settings==2.7.0
+httpx==0.28.1
+opensearch-py==2.8.0
+onnxruntime==1.20.1
+tokenizers==0.21.0
+numpy==2.2.1

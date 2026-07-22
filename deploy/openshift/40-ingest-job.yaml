@@ -1,0 +1,89 @@
+# Ingest runs as a scheduled sweep, not a long-lived service. A CronJob that
+# re-walks the share is the simplest thing that works: chunk ids are
+# deterministic, so re-ingesting an unchanged document is an idempotent
+# overwrite rather than a duplicate.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: rag-ingest
+  labels: { app: rag-ingest, app.kubernetes.io/part-of: rag }
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid       # never let two sweeps race on the same index
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 3600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      # 6 hours. A full corpus with OCR is slow; a shorter deadline kills the
+      # job mid-run and leaves the index partially updated.
+      activeDeadlineSeconds: 21600
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: worker
+              image: image-registry.openshift-image-registry.svc:5000/rag/rag-worker:0.1.0
+              args: ["ingest", "/data/corpus", "--recursive", "--workers", "4"]
+              envFrom:
+                - configMapRef: { name: rag-config }
+                - secretRef: { name: rag-secrets }
+              env:
+                - { name: RAG_EMBEDDING__NUM_THREADS, value: "4" }
+              resources:
+                requests: { cpu: "1", memory: "2Gi" }
+                limits:   { cpu: "4", memory: "4Gi" }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+              volumeMounts:
+                - { name: corpus, mountPath: /data/corpus, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - name: corpus
+              persistentVolumeClaim:
+                claimName: rag-corpus
+            - name: tmp
+              emptyDir: { sizeLimit: 4Gi }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rag-corpus
+spec:
+  accessModes: ["ReadWriteMany"]   # RWX so the sweep can run while files land
+  resources:
+    requests:
+      storage: 100Gi
+---
+# One-shot index creation. Run before the first ingest:
+#   oc apply -f deploy/openshift/40-ingest-job.yaml
+#   oc create job rag-bootstrap-1 --from=cronjob/rag-ingest \
+#     --dry-run=client -o yaml | ...   (or just use this Job directly)
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rag-bootstrap-index
+  labels: { app: rag-ingest }
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: bootstrap
+          image: image-registry.openshift-image-registry.svc:5000/rag/rag-worker:0.1.0
+          # Note: no --recreate. Adding it DELETES the index and every vector
+          # in it. Only use that flag when the embedding model has changed.
+          args: ["bootstrap"]
+          envFrom:
+            - configMapRef: { name: rag-config }
+            - secretRef: { name: rag-secrets }
+          resources:
+            requests: { cpu: "200m", memory: "512Mi" }
+            limits:   { cpu: "1",    memory: "1Gi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }

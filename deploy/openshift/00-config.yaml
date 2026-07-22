@@ -1,0 +1,74 @@
+# All non-secret configuration in one place. Changing a value here and running
+# `oc rollout restart deployment/rag-api` is how behaviour is tuned -- no rebuild.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-config
+  labels: { app.kubernetes.io/part-of: rag }
+data:
+  RAG_ENV: "openshift"
+  RAG_LOG_LEVEL: "INFO"
+
+  # --- LLM: the work endpoint. Only these change between environments. -------
+  RAG_LLM__PROVIDER: "azure_openai"
+  RAG_LLM__BASE_URL: "https://REPLACE-ME.openai.azure.com"
+  RAG_LLM__MODEL: "REPLACE-ME-deployment-name"
+  RAG_LLM__API_VERSION: "2024-10-21"
+  RAG_LLM__TEMPERATURE: "0.1"
+  RAG_LLM__MAX_TOKENS: "1500"
+  RAG_LLM__TIMEOUT_S: "120"
+  RAG_LLM__VERIFY_SSL: "true"
+  # Uncomment when TLS is intercepted and mount the CA (see the api Deployment).
+  # RAG_LLM__CA_BUNDLE: "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"
+
+  # --- Embeddings: baked into the image, never fetched ----------------------
+  RAG_EMBEDDING__PROVIDER: "local_onnx"
+  RAG_EMBEDDING__MODEL_PATH: "/models/bge-small-en-v1.5"
+  RAG_EMBEDDING__DIM: "384"
+  RAG_EMBEDDING__BATCH_SIZE: "32"
+  RAG_EMBEDDING__QUERY_PREFIX: "Represent this sentence for searching relevant passages:"
+  RAG_EMBEDDING__NUM_THREADS: "2"
+
+  # --- OpenSearch -----------------------------------------------------------
+  RAG_OPENSEARCH__HOSTS: "https://opensearch-cluster-master.opensearch.svc:9200"
+  RAG_OPENSEARCH__INDEX: "rag-chunks"
+  RAG_OPENSEARCH__VERIFY_CERTS: "true"
+  RAG_OPENSEARCH__CA_CERTS: "/etc/opensearch-ca/ca.crt"
+  RAG_OPENSEARCH__BULK_SIZE: "200"
+  RAG_OPENSEARCH__NUM_SHARDS: "3"
+  RAG_OPENSEARCH__NUM_REPLICAS: "1"
+
+  # --- Chunking and retrieval ----------------------------------------------
+  RAG_CHUNKING__MAX_TOKENS: "450"
+  RAG_CHUNKING__OVERLAP_TOKENS: "64"
+  RAG_RETRIEVAL__FUSION: "rrf"
+  RAG_RETRIEVAL__TOP_K_BM25: "50"
+  RAG_RETRIEVAL__TOP_K_VECTOR: "50"
+  RAG_RETRIEVAL__FINAL_K: "8"
+  RAG_RETRIEVAL__CONTEXT_TOKEN_BUDGET: "6000"
+  RAG_RETRIEVAL__RERANK_ENABLED: "false"
+
+  # --- Extraction -----------------------------------------------------------
+  RAG_TIKA__URL: "http://rag-tika:9998"
+  RAG_OCR__URL: "http://rag-ocr:9999"
+  RAG_OCR__ENABLED: "true"
+  RAG_OCR__LANGUAGES: "en"
+  RAG_OCR__MIN_CHARS_PER_PAGE: "120"
+
+  # --- API ------------------------------------------------------------------
+  RAG_API__CORS_ORIGINS: "https://rag.apps.REPLACE-ME.example"
+  RAG_API__MAX_UPLOAD_MB: "100"
+  RAG_API__AUTH_MODE: "none"
+---
+# Create the real one with `oc create secret generic rag-secrets --from-literal=...`
+# and keep it out of git. This is a template showing the expected keys.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rag-secrets
+  labels: { app.kubernetes.io/part-of: rag }
+type: Opaque
+stringData:
+  RAG_LLM__API_KEY: "REPLACE-ME"
+  RAG_OPENSEARCH__USERNAME: "REPLACE-ME"
+  RAG_OPENSEARCH__PASSWORD: "REPLACE-ME"

@@ -1,0 +1,6 @@
+# Local development and testing only. Never installed into a runtime image.
+pytest==8.3.4
+pyyaml==6.0.2
+# Used by ops/make_scan_fixture.py to generate a text-free "scanned" page so the
+# OCR path can be tested without hunting for a real scanned document.
+pillow==11.0.0

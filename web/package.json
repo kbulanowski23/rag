@@ -1,0 +1,26 @@
+{
+  "name": "rag-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "//": "Deliberately minimal. No component library, no CSS framework, no icon package, no fetch wrapper. Every added dependency is one more thing to mirror into the internal npm registry and to justify in a security review.",
+  "//deps": "Exact pins, no ^ ranges: the same lockfile must resolve identically at home and against the internal mirror. Next 15.1.x carries CVE-2025-66478 -- do not downgrade. Re-check these before each transfer; an internal mirror will not update them for you.",
+  "//sharp": "Install normally -- do NOT use --omit=optional, which also drops @next/swc-* and makes the build download the SWC binary at build time. sharp (high-severity libvips CVEs) is instead excluded from the traced standalone output via outputFileTracingExcludes in next.config.mjs, so it never reaches the runtime image.",
+  "dependencies": {
+    "next": "16.2.11",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/react": "19.0.2",
+    "@types/react-dom": "19.0.2",
+    "typescript": "5.7.2"
+  }
+}

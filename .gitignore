@@ -1,0 +1,35 @@
+.env
+.env.local
+*.pyc
+__pycache__/
+.venv/
+.venv-*/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Model weights are large binaries. Fetch them with ops/fetch_models.py rather
+# than committing them; the checksum manifest is what travels in git.
+deploy/models/**
+!deploy/models/README.md
+!deploy/models/SHA256SUMS
+
+# Test fixtures ARE committed (small, and the OCR test is worthless without
+# them) -- deploy/fixtures/ is deliberately not ignored.
+
+# Per-machine Claude Code permissions, not project configuration.
+.claude/settings.local.json
+
+wheelhouse/
+*.tar
+*.tar.gz
+.DS_Store

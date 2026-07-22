@@ -1,0 +1,114 @@
+# Local development only. OpenShift uses deploy/openshift/ instead.
+#
+#   docker compose up -d opensearch dashboards tika ocr
+#   docker compose up -d --build api web
+#
+# The OCR image takes a long time to build the first time (torch). Bring the
+# other services up first and work without OCR if you are in a hurry.
+
+services:
+  opensearch:
+    image: opensearchproject/opensearch:2.18.0
+    container_name: rag-opensearch
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=-Xms2g -Xmx2g
+      # Local only. The work cluster runs with security enabled and this must
+      # never be copied there.
+      - DISABLE_SECURITY_PLUGIN=true
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  dashboards:
+    image: opensearchproject/opensearch-dashboards:2.18.0
+    container_name: rag-dashboards
+    environment:
+      - OPENSEARCH_HOSTS=["http://opensearch:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    ports:
+      - "5601:5601"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+
+  tika:
+    # -full includes the OCR and image parsers; the slim image cannot read some
+    # office formats. Tika's own tesseract path stays unused -- EasyOCR handles
+    # OCR so there is one OCR engine to configure, not two.
+    image: apache/tika:3.0.0.0-full
+    container_name: rag-tika
+    ports:
+      - "9998:9998"
+    healthcheck:
+      # wget, not curl: the apache/tika image ships neither curl nor a shell
+      # HTTP client beyond busybox wget, so a curl probe fails as "unhealthy"
+      # while the service is answering every request normally.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:9998/tika || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  ocr:
+    build:
+      context: .
+      dockerfile: services/ocr/Dockerfile
+    container_name: rag-ocr
+    environment:
+      - RAG_OCR__LANGUAGES=en
+      - RAG_OCR__GPU=false
+      - RAG_OCR__RENDER_DPI=200
+    ports:
+      - "9999:9999"
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    container_name: rag-api
+    env_file: .env
+    environment:
+      - RAG_OPENSEARCH__HOSTS=http://opensearch:9200
+      - RAG_OPENSEARCH__VERIFY_CERTS=false
+      - RAG_TIKA__URL=http://tika:9998
+      - RAG_OCR__URL=http://ocr:9999
+      - RAG_EMBEDDING__MODEL_PATH=/models/bge-small-en-v1.5
+      # host.docker.internal reaches Ollama running on the Windows host.
+      - RAG_LLM__BASE_URL=http://host.docker.internal:11434/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    depends_on:
+      opensearch:
+        condition: service_healthy
+      tika:
+        condition: service_started
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+    container_name: rag-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  opensearch-data:
