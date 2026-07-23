@@ -1,9 +1,16 @@
 import type { ChatTurn, EffectiveConfig, IndexStats, Source } from "./types";
 
-// Resolved at build time from NEXT_PUBLIC_API_BASE_URL. In OpenShift this is set
-// on the build, not at runtime, because Next inlines NEXT_PUBLIC_* values.
-// If the API is exposed on the same route as the UI, leave it empty and use
-// relative paths.
+// Normally EMPTY, which is what you want. Every call below then uses a relative
+// URL, hits the Next server this page was served from, and is proxied to the API
+// by app/api/v1/[...path]/route.ts using RAG_API_URL -- read at request time, so
+// one image runs in every environment and the browser never makes a
+// cross-origin request.
+//
+// Setting NEXT_PUBLIC_API_BASE_URL makes the browser call the API directly
+// instead. It is inlined into the client bundle at BUILD time, so the value
+// becomes part of the image and the API then needs its own Route plus a CORS
+// entry for each UI hostname. Only do this if something requires bypassing the
+// proxy.
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 const V1 = `${API_BASE}/api/v1`;
 
