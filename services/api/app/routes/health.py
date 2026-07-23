@@ -38,7 +38,18 @@ async def ready(response: Response, c: Container = Depends(get_container)) -> He
 
     def embedder_check():
         v = c.embedder.embed_query("readiness probe")
-        return len(v) == c.settings.embedding.dim, f"dim={len(v)}"
+        want = c.settings.embedding.dim
+        if len(v) == want:
+            return True, f"dim={want}"
+        # The single most likely misconfiguration when pointing at a new
+        # embedding endpoint, and the least obvious from a bare dimension
+        # number: the index mapping is built from RAG_EMBEDDING__DIM and is
+        # fixed at creation, so this cannot be fixed by a rollout alone.
+        return False, (
+            f"RAG_EMBEDDING__DIM={want} but model {c.settings.embedding.model or 'local'!r} "
+            f"returned {len(v)}. Set the dim to {len(v)}, then recreate the index "
+            f"and re-ingest -- existing vectors are unusable at a different dim."
+        )
 
     def tika_check():
         ok = c.tika.health()

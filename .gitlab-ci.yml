@@ -1,0 +1,181 @@
+# GitLab CI -> OpenShift.
+#
+# This pipeline owns TEST and DEPLOY. Image building is left to your
+# organisation's shared CI template -- see the `include:` block below, which is
+# the one thing you must fill in before the first run.
+#
+# ---------------------------------------------------------------------------
+# STEP 1: point this at your org's template and delete the placeholder.
+# ---------------------------------------------------------------------------
+# include:
+#   - project: 'platform/ci-templates'
+#     ref: main
+#     file: '/docker-build.yml'
+#
+# Then make the build jobs below extend whatever that template provides. The
+# only contract this pipeline needs from it: after the build stage, an image
+# exists at a reference the deploy stage can name. Set IMAGE_API / IMAGE_WEB /
+# IMAGE_WORKER below to match how your template tags things -- that is the
+# single seam between their pipeline and this one.
+#
+# ---------------------------------------------------------------------------
+# STEP 2: set these CI/CD variables (Settings -> CI/CD -> Variables)
+# ---------------------------------------------------------------------------
+#   OPENSHIFT_SERVER    https://api.ocp.example:6443
+#   OPENSHIFT_TOKEN     ServiceAccount token -- MASKED and PROTECTED
+#   OPENSHIFT_PROJECT   target namespace, e.g. rag-dev
+#   OC_IMAGE            (optional) an image with the `oc` CLI on PATH, if the
+#                       default below is not reachable from your runners
+#
+# Create the ServiceAccount once per namespace:
+#   oc create sa gitlab-deployer -n $OPENSHIFT_PROJECT
+#   oc policy add-role-to-user edit -z gitlab-deployer -n $OPENSHIFT_PROJECT
+#   oc create token gitlab-deployer -n $OPENSHIFT_PROJECT --duration=8760h
+# The `edit` role is enough to apply manifests and roll out deployments.
+#
+# ---------------------------------------------------------------------------
+# What is NOT in this file, on purpose
+# ---------------------------------------------------------------------------
+# No hostnames, no model names, no URLs. Everything environment-specific lives
+# in the ConfigMap (deploy/openshift/00-config.yaml) or in GitLab variables, so
+# the same commit deploys to dev, test and prod unchanged. In particular the web
+# image contains no API URL -- it reads RAG_API_URL at runtime -- so one built
+# image is promoted across environments rather than rebuilt per environment.
+
+stages: [test, build, deploy]
+
+variables:
+  PYTHON_IMAGE: "python:3.12-slim"
+  OC_IMAGE: "quay.io/openshift/origin-cli:4.15"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  GIT_DEPTH: "50"
+
+  # The image references the deploy stage will roll out. Adjust the right-hand
+  # side to match your shared template's tagging scheme.
+  IMAGE_API: "$CI_REGISTRY_IMAGE/rag-api:$CI_COMMIT_SHORT_SHA"
+  IMAGE_WEB: "$CI_REGISTRY_IMAGE/rag-web:$CI_COMMIT_SHORT_SHA"
+  IMAGE_WORKER: "$CI_REGISTRY_IMAGE/rag-worker:$CI_COMMIT_SHORT_SHA"
+
+
+# --- test --------------------------------------------------------------------
+# Unit tests only: no OpenSearch, no Tika, no model weights, no network. The
+# suite is written to run without them, which keeps this stage fast and free of
+# services. The integration proof is ops/smoke_test.py -- see smoke-test below.
+
+test:
+  stage: test
+  image: $PYTHON_IMAGE
+  before_script:
+    - pip install -q -r requirements-dev.txt -r services/api/requirements.txt
+    - pip install -q -e packages/rag_core
+  script:
+    - python -m pytest -q
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+
+# --- build -------------------------------------------------------------------
+# PLACEHOLDER. Replace each of these with a job that extends your org's shared
+# build template. The Dockerfiles and their build contexts are:
+#
+#   rag-api     context: .      dockerfile: services/api/Dockerfile
+#   rag-web     context: web    dockerfile: web/Dockerfile
+#   rag-worker  context: .      dockerfile: services/worker/Dockerfile
+#   rag-ocr     context: .      dockerfile: services/ocr/Dockerfile
+#
+# Two things worth telling whoever owns that template:
+#   - rag-web takes NO build args. Passing NEXT_PUBLIC_API_BASE_URL would compile
+#     an API hostname into the bundle and tie the image to one environment.
+#   - rag-ocr pulls torch and is slow and large. Build it only when
+#     services/ocr/ changes; it is unchanged by everything else here.
+
+build:placeholder:
+  stage: build
+  image: $PYTHON_IMAGE
+  script:
+    - echo "Replace the build stage with your org's shared template. See the header."
+    - exit 1
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+
+
+# --- deploy ------------------------------------------------------------------
+
+.oc:
+  image: $OC_IMAGE
+  before_script:
+    - oc login "$OPENSHIFT_SERVER" --token="$OPENSHIFT_TOKEN" --insecure-skip-tls-verify=${OC_INSECURE:-false}
+    - oc project "$OPENSHIFT_PROJECT"
+
+deploy:
+  extends: .oc
+  stage: deploy
+  environment:
+    name: $OPENSHIFT_PROJECT
+  script:
+    # ConfigMap first so the rollout below starts with current configuration.
+    #
+    # NOTE the --selector. The Secret in 00-config.yaml is a placeholder template
+    # carrying "REPLACE-ME" values; applying it would overwrite real credentials.
+    # The selector applies the ConfigMap only. Create the Secret out of band:
+    #   oc create secret generic rag-secrets \
+    #     --from-literal=RAG_LLM__API_KEY=... \
+    #     --from-literal=RAG_EMBEDDING__API_KEY=...
+    - oc apply -f deploy/openshift/00-config.yaml --selector=app.kubernetes.io/part-of=rag
+    - oc apply -f deploy/openshift/10-api.yaml
+    - oc apply -f deploy/openshift/20-tika-ocr.yaml
+    - oc apply -f deploy/openshift/30-web.yaml
+
+    # Point the deployments at the images this pipeline built. Without this,
+    # `oc apply` leaves whatever tag happens to be written in the manifest.
+    - oc set image deployment/rag-api api=$IMAGE_API
+    - oc set image deployment/rag-web web=$IMAGE_WEB
+
+    # Fail the pipeline if the new pods never go ready, instead of reporting
+    # green while the previous pods quietly keep serving traffic.
+    - oc rollout status deployment/rag-api --timeout=5m
+    - oc rollout status deployment/rag-web --timeout=5m
+
+    # Readiness passing already proves OpenSearch, the embedder and Tika all
+    # answered. Printing the effective config makes the job log a permanent
+    # record of which model, dim and index this environment landed on -- the
+    # first thing you will want when a later deploy behaves differently.
+    - oc exec deployment/rag-api -- python -c "import urllib.request;print(urllib.request.urlopen('http://localhost:8000/api/v1/health/ready').read().decode())"
+    - oc exec deployment/rag-api -- python -c "import urllib.request;print(urllib.request.urlopen('http://localhost:8000/api/v1/config').read().decode())"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+
+# Create the OpenSearch index. Run once per environment before the first ingest,
+# and again after any change to the embedding model or its dim.
+#
+# Manual on purpose: with --recreate this DELETES the index and every vector in
+# it. Without --recreate it is a safe no-op against an existing index.
+bootstrap-index:
+  extends: .oc
+  stage: deploy
+  when: manual
+  script:
+    - |
+      oc run rag-bootstrap-$CI_JOB_ID --rm -i --restart=Never --image="$IMAGE_WORKER" \
+        --overrides='{"spec":{"containers":[{"name":"bootstrap","image":"'"$IMAGE_WORKER"'","command":["python","-m","app.main","bootstrap"],"envFrom":[{"configMapRef":{"name":"rag-config"}},{"secretRef":{"name":"rag-secrets"}}]}]}}'
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+
+# End-to-end proof against the deployed stack: extraction, chunking, embedding,
+# indexing, BM25, kNN, fusion, OCR, the LLM and SSE streaming. Run this after the
+# first deploy into a new environment. It is the fastest way to discover that
+# the embedding dim is wrong, or that the LiteLLM key cannot reach the model.
+smoke-test:
+  extends: .oc
+  stage: deploy
+  when: manual
+  needs: [deploy]
+  script:
+    - oc exec deployment/rag-api -- python ops/smoke_test.py --api-url http://localhost:8000
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

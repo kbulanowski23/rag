@@ -13,14 +13,19 @@ spec:
     spec:
       containers:
         - name: web
-          # NEXT_PUBLIC_API_BASE_URL is compiled into this image. A different
-          # API hostname requires a rebuild, not an env change.
           image: image-registry.openshift-image-registry.svc:5000/rag/rag-web:0.1.0
           ports:
             - { name: http, containerPort: 3000 }
           env:
             - { name: NODE_ENV, value: production }
             - { name: NEXT_TELEMETRY_DISABLED, value: "1" }
+            # The browser calls /api/v1/* on this pod and Next proxies it to the
+            # API in-cluster. Read per request, so changing it is `oc set env` +
+            # a rollout -- no rebuild. Because the traffic never leaves the web
+            # origin, the API needs no Route and no CORS entry for this host.
+            - name: RAG_API_URL
+              valueFrom:
+                configMapKeyRef: { name: rag-config, key: RAG_API_URL }
           resources:
             requests: { cpu: "100m", memory: "256Mi" }
             limits:   { cpu: "1",    memory: "512Mi" }
@@ -58,6 +63,12 @@ apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
   name: rag-web
+  annotations:
+    # The SSE chat stream now reaches the browser through THIS route, not the
+    # API's, because the web pod proxies /api/v1/*. Without this the router's
+    # 30s default closes the connection mid-answer on any slow generation and
+    # it looks like the model stopped talking. Must stay >= RAG_LLM__TIMEOUT_S.
+    haproxy.router.openshift.io/timeout: 300s
 spec:
   to: { kind: Service, name: rag-web }
   port: { targetPort: http }

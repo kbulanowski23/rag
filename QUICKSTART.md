@@ -98,10 +98,10 @@ cd web; npm install; npm run dev
 # http://localhost:3000
 ```
 
-The dev server reads `web/.env.local` for `NEXT_PUBLIC_API_BASE_URL`. Without it
-the UI calls `/api/v1/*` on itself and every request 404s. Containers get the
-same value as a build arg instead, since Next inlines `NEXT_PUBLIC_*` at build
-time and will not read it from the runtime environment.
+The UI calls `/api/v1/*` on its own origin and Next proxies that to the API
+server-side (`web/next.config.mjs`). The target is `RAG_API_URL`, read at server
+startup and defaulting to `http://localhost:8000`, so local development needs no
+configuration and no CORS entry.
 
 Ingest a folder of your own documents:
 

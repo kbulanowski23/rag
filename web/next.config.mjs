@@ -1,3 +1,9 @@
+// NOTE: the browser's /api/v1/* calls are proxied to the API server-side by the
+// route handler in app/api/v1/[...path]/route.ts, NOT by a rewrite here.
+// Rewrites are evaluated at build time and frozen into routes-manifest.json, so
+// a rewrite reading process.env would bake the build machine's value into the
+// image and silently ignore the ConfigMap. Verified, not assumed.
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Produces .next/standalone with only the needed node_modules, which keeps the

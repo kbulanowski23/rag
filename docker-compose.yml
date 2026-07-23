@@ -102,9 +102,14 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      # No NEXT_PUBLIC_API_BASE_URL build arg on purpose: the UI uses relative
+      # URLs and the web server proxies them, so the image is not tied to any
+      # environment. Same image here as in OpenShift, only RAG_API_URL differs.
     container_name: rag-web
+    environment:
+      # Container-to-container name, not localhost -- the proxy runs in the web
+      # container, so this resolves on the compose network, not on your machine.
+      - RAG_API_URL=http://api:8000
     ports:
       - "3000:3000"
     depends_on:

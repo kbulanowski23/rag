@@ -1,5 +1,18 @@
 # All non-secret configuration in one place. Changing a value here and running
-# `oc rollout restart deployment/rag-api` is how behaviour is tuned -- no rebuild.
+# `oc rollout restart deployment/rag-api deployment/rag-web` is how behaviour is
+# tuned -- no rebuild, no image change.
+#
+# Every key maps to a field in packages/rag_core/src/rag_core/config.py by the
+# rule RAG_<SECTION>__<FIELD>. Anything in that file is settable here even if it
+# is not listed below; the entries here are the ones that differ per environment.
+#
+# ---------------------------------------------------------------------------
+# THE FOUR VALUES THAT MUST BE RIGHT. Everything else has a working default.
+#   1. RAG_LLM__BASE_URL      + RAG_LLM__MODEL       -> your LiteLLM endpoint
+#   2. RAG_EMBEDDING__*       (provider, model, dim) -> your embedding model
+#   3. RAG_OPENSEARCH__HOSTS                          -> your cluster
+#   4. RAG_API_URL                                    -> in-cluster API Service
+# ---------------------------------------------------------------------------
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,25 +22,72 @@ data:
   RAG_ENV: "openshift"
   RAG_LOG_LEVEL: "INFO"
 
-  # --- LLM: the work endpoint. Only these change between environments. -------
-  RAG_LLM__PROVIDER: "azure_openai"
-  RAG_LLM__BASE_URL: "https://REPLACE-ME.openai.azure.com"
-  RAG_LLM__MODEL: "REPLACE-ME-deployment-name"
-  RAG_LLM__API_VERSION: "2024-10-21"
+  # --- Web -> API -----------------------------------------------------------
+  # In-cluster Service DNS. The browser never sees this: the web pod proxies
+  # /api/v1/* to it server-side, which is why the API needs no public Route.
+  #
+  # Read by the Node server in the web pod, NOT by rag_core -- do not go looking
+  # for it in config.py. Note the single underscore: it is unrelated to the
+  # RAG_API__* keys further down, which configure the Python API itself.
+  RAG_API_URL: "http://rag-api:8000"
+
+  # --- LLM ------------------------------------------------------------------
+  # LiteLLM speaks the OpenAI wire format, so `openai_compatible` is the right
+  # provider -- there is no LiteLLM-specific client and none is needed.
+  #
+  # BASE_URL must include the /v1 suffix. MODEL is the name as LiteLLM routes it
+  # (whatever appears in its model_list), not the upstream vendor's name.
+  # The key goes in the Secret below, never here.
+  RAG_LLM__PROVIDER: "openai_compatible"
+  RAG_LLM__BASE_URL: "https://REPLACE-ME-litellm.apps.example/v1"
+  RAG_LLM__MODEL: "REPLACE-ME-model-name"
   RAG_LLM__TEMPERATURE: "0.1"
   RAG_LLM__MAX_TOKENS: "1500"
   RAG_LLM__TIMEOUT_S: "120"
   RAG_LLM__VERIFY_SSL: "true"
-  # Uncomment when TLS is intercepted and mount the CA (see the api Deployment).
+  # Internal CA / TLS interception: mount the bundle (see the api Deployment)
+  # and point at it here rather than turning verification off.
   # RAG_LLM__CA_BUNDLE: "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"
+  # Routing headers some gateways require (JSON object, parsed by config.py):
+  # RAG_LLM__EXTRA_HEADERS: '{"X-Team":"claims"}'
 
-  # --- Embeddings: baked into the image, never fetched ----------------------
+  # --- Embeddings -----------------------------------------------------------
+  # Two supported shapes; pick ONE block.
+  #
+  # (a) local_onnx -- the model ships inside the image. No network hop per query,
+  #     and it cannot drift out from under the index. Preferred when allowed.
+  # (b) openai_compatible -- call out to LiteLLM (or any /v1/embeddings service).
+  #     Required if central policy says models are served, not embedded.
+  #
+  # ###################################################################
+  # DIM MUST MATCH THE MODEL. It defines the OpenSearch vector field, is
+  # fixed when the index is created, and cannot be altered afterwards.
+  # Wrong dim = readiness fails with "expected 384, model returned 1024".
+  # Changing the model or dim later invalidates every vector already
+  # indexed: create a new index and re-ingest. There is no migration.
+  #   bge-small=384  bge-base/e5-base=768  bge-large/e5-large=1024
+  #   text-embedding-3-small=1536  text-embedding-3-large=3072
+  # Confirm with:  GET {BASE_URL}/embeddings  -> len(data[0].embedding)
+  # ###################################################################
+
+  # (a) in-image model:
   RAG_EMBEDDING__PROVIDER: "local_onnx"
   RAG_EMBEDDING__MODEL_PATH: "/models/bge-small-en-v1.5"
   RAG_EMBEDDING__DIM: "384"
-  RAG_EMBEDDING__BATCH_SIZE: "32"
+  # bge models were trained with an asymmetric query prefix; omitting it costs
+  # real retrieval quality. e5 models use "query: " / "passage: " instead.
   RAG_EMBEDDING__QUERY_PREFIX: "Represent this sentence for searching relevant passages:"
   RAG_EMBEDDING__NUM_THREADS: "2"
+
+  # (b) served model -- comment out (a) above and uncomment this:
+  # RAG_EMBEDDING__PROVIDER: "openai_compatible"
+  # RAG_EMBEDDING__BASE_URL: "https://REPLACE-ME-litellm.apps.example/v1"
+  # RAG_EMBEDDING__MODEL: "REPLACE-ME-embedding-model"
+  # RAG_EMBEDDING__DIM: "REPLACE-ME-must-match"
+  # RAG_EMBEDDING__QUERY_PREFIX: ""
+  # RAG_EMBEDDING__API_KEY comes from the Secret.
+
+  RAG_EMBEDDING__BATCH_SIZE: "32"
 
   # --- OpenSearch -----------------------------------------------------------
   RAG_OPENSEARCH__HOSTS: "https://opensearch-cluster-master.opensearch.svc:9200"
@@ -37,8 +97,13 @@ data:
   RAG_OPENSEARCH__BULK_SIZE: "200"
   RAG_OPENSEARCH__NUM_SHARDS: "3"
   RAG_OPENSEARCH__NUM_REPLICAS: "1"
+  # `lucene` needs no native library on the cluster. Switch to faiss/nmslib only
+  # after confirming the target cluster actually has the plugin.
+  RAG_OPENSEARCH__KNN_ENGINE: "lucene"
 
   # --- Chunking and retrieval ----------------------------------------------
+  # Safe to tune live: these change query behaviour only. Chunking changes apply
+  # to newly ingested documents, so a corpus chunked two ways is a mixed index.
   RAG_CHUNKING__MAX_TOKENS: "450"
   RAG_CHUNKING__OVERLAP_TOKENS: "64"
   RAG_RETRIEVAL__FUSION: "rrf"
@@ -51,17 +116,26 @@ data:
   # --- Extraction -----------------------------------------------------------
   RAG_TIKA__URL: "http://rag-tika:9998"
   RAG_OCR__URL: "http://rag-ocr:9999"
+  # Set false to drop the OCR Deployment entirely (it carries torch, ~2 GB).
+  # Scanned pages then index as empty and become invisible to search.
   RAG_OCR__ENABLED: "true"
   RAG_OCR__LANGUAGES: "en"
   RAG_OCR__MIN_CHARS_PER_PAGE: "120"
 
   # --- API ------------------------------------------------------------------
-  RAG_API__CORS_ORIGINS: "https://rag.apps.REPLACE-ME.example"
+  # Only needed if something calls the API from a browser on another origin.
+  # With the web proxy in front, the UI does not, so this can stay empty.
+  RAG_API__CORS_ORIGINS: ""
   RAG_API__MAX_UPLOAD_MB: "100"
   RAG_API__AUTH_MODE: "none"
 ---
-# Create the real one with `oc create secret generic rag-secrets --from-literal=...`
-# and keep it out of git. This is a template showing the expected keys.
+# Template only -- shows the expected keys. Create the real one out of band:
+#   oc create secret generic rag-secrets \
+#     --from-literal=RAG_LLM__API_KEY=... \
+#     --from-literal=RAG_EMBEDDING__API_KEY=... \
+#     --from-literal=RAG_OPENSEARCH__USERNAME=... \
+#     --from-literal=RAG_OPENSEARCH__PASSWORD=...
+# In GitLab CI these come from masked CI/CD variables; see .gitlab-ci.yml.
 apiVersion: v1
 kind: Secret
 metadata:
@@ -70,5 +144,7 @@ metadata:
 type: Opaque
 stringData:
   RAG_LLM__API_KEY: "REPLACE-ME"
+  # Same LiteLLM key as above when embeddings are served from it too.
+  RAG_EMBEDDING__API_KEY: "REPLACE-ME"
   RAG_OPENSEARCH__USERNAME: "REPLACE-ME"
   RAG_OPENSEARCH__PASSWORD: "REPLACE-ME"

@@ -74,18 +74,16 @@ spec:
   ports:
     - { name: http, port: 8000, targetPort: http }
 ---
-apiVersion: route.openshift.io/v1
-kind: Route
-metadata:
-  name: rag-api
-  annotations:
-    # SSE needs a long read timeout, otherwise the router cuts the stream
-    # mid-answer on any slow generation.
-    haproxy.router.openshift.io/timeout: 300s
-spec:
-  to: { kind: Service, name: rag-api }
-  port: { targetPort: http }
-  tls: { termination: edge, insecureEdgeTerminationPolicy: Redirect }
+# There is deliberately NO Route for the API.
+#
+# The browser talks only to rag-web, which proxies /api/v1/* to this Service
+# over cluster DNS. So the API is reachable from inside the namespace and
+# nowhere else: one public hostname instead of two, and CORS never enters the
+# picture (RAG_API__CORS_ORIGINS stays empty).
+#
+# If you later need to call the API from outside -- a script, another team,
+# /docs -- add a Route here and give it the same SSE timeout annotation the web
+# Route carries, or streamed answers will be cut off at the router's 30s default.
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler

@@ -17,8 +17,14 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# NEXT_PUBLIC_* values are inlined at build time, so the API URL is a build arg,
-# not a runtime env var. A different backend URL means a different image tag.
+# Leave NEXT_PUBLIC_API_BASE_URL empty. Empty means the UI uses relative URLs,
+# which the server-side proxy in app/api/v1/[...path]/route.ts forwards to
+# RAG_API_URL -- a RUNTIME variable, so one image runs in every environment.
+#
+# Setting it here still works and makes the browser call the API directly, but
+# it is inlined into the client bundle at build time: the value becomes part of
+# the image, and the API then needs its own public Route plus a CORS entry for
+# each UI hostname. Only do that if something requires bypassing the proxy.
 ARG NEXT_PUBLIC_API_BASE_URL=""
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL} \
     NEXT_TELEMETRY_DISABLED=1
