@@ -1,0 +1,67 @@
+# OpenSearch Dashboards -- the UI for browsing chunks, mappings and vectors.
+#
+# Sandbox only. At work Dashboards comes with your OpenSearch install; ask the
+# platform team for its route rather than running a second copy.
+#
+# It is exposed on its own Route because it is an operator tool, not part of the
+# product. Note there is NO authentication in front of it: the sandbox runs
+# OpenSearch with the security plugin disabled, so anyone with the URL can read
+# and delete indices. Acceptable for a trial namespace holding test fixtures,
+# and not a pattern to carry anywhere else.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboards
+  labels: { app: dashboards, app.kubernetes.io/part-of: rag }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: dashboards }
+  template:
+    metadata:
+      labels: { app: dashboards }
+    spec:
+      containers:
+        - name: dashboards
+          image: image-registry.openshift-image-registry.svc:5000/kbulanowski-dev/dashboards-ocp:latest
+          ports:
+            - { name: http, containerPort: 5601 }
+          env:
+            - { name: OPENSEARCH_HOSTS, value: '["http://opensearch:9200"]' }
+            # The engine runs with security off, so the Dashboards-side plugin
+            # must be off too or it will refuse to start looking for a tenant.
+            - { name: DISABLE_SECURITY_DASHBOARDS_PLUGIN, value: "true" }
+            - { name: SERVER_HOST, value: "0.0.0.0" }
+          resources:
+            requests: { cpu: "200m", memory: 1Gi }
+            limits:   { cpu: "1",    memory: 2Gi }
+          startupProbe:
+            # First boot rebuilds the browser bundles, which is slow.
+            httpGet: { path: /api/status, port: http }
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /api/status, port: http }
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboards
+  labels: { app: dashboards }
+spec:
+  selector: { app: dashboards }
+  ports:
+    - { name: http, port: 5601, targetPort: http }
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: dashboards
+spec:
+  to: { kind: Service, name: dashboards }
+  port: { targetPort: http }
+  tls: { termination: edge, insecureEdgeTerminationPolicy: Redirect }

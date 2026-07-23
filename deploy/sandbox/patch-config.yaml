@@ -26,6 +26,16 @@ data:
   RAG_LLM__MODEL: "isvc-qwen3-8b-fp8"
   RAG_LLM__VERIFY_SSL: "false"
   RAG_LLM__TIMEOUT_S: "180"
+  # qwen3 is a reasoning model. Left alone it spends most of its output budget
+  # thinking before it says anything: measured 17.8s of silence before the first
+  # visible token, and 10.2s/257 tokens on a one-sentence question that takes
+  # 0.9s/22 tokens with thinking off. Stripping the trace only hides the cost;
+  # this removes it.
+  #
+  # vLLM-specific. LiteLLM at work may expose the same idea as
+  # {"reasoning_effort":"low"} or may not need it at all if the model is not a
+  # reasoning model -- an empty value here is the safe default.
+  RAG_LLM__EXTRA_BODY: '{"chat_template_kwargs":{"enable_thinking":false}}'
 
   # Embeddings SERVED, not in-process -- this is the work configuration.
   # RemoteOpenAIEmbedder posts to {BASE_URL}/embeddings exactly as it will to
@@ -42,7 +52,11 @@ data:
   # The stub applies no prefix of its own, so bge's asymmetric query prefix is
   # still ours to send. Clear this for models that were not trained with one.
   RAG_EMBEDDING__QUERY_PREFIX: "Represent this sentence for searching relevant passages:"
-  RAG_EMBEDDING__BATCH_SIZE: "32"
+  # Lowered from 32. Batch size is the main lever on peak memory at whatever
+  # serves the embeddings; a large PDF fans out to hundreds of chunks and the
+  # batches arrive back to back. Worth remembering if LiteLLM starts 5xx-ing
+  # under a bulk backfill at work.
+  RAG_EMBEDDING__BATCH_SIZE: "16"
 
   # OCR on: scanned documents are a core case, not an optional extra.
   RAG_OCR__ENABLED: "true"

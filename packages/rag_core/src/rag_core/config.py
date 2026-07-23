@@ -39,9 +39,31 @@ class LLMSettings(BaseModel):
     ca_bundle: str | None = None
     extra_headers: dict[str, str] = Field(default_factory=dict)
 
-    @field_validator("extra_headers", mode="before")
+    # Reasoning models emit their chain of thought inline before the answer.
+    # It is longer than the answer, contradicts itself as it reasons, and leaks
+    # the prompt's structure, so it is stripped before the user sees it. Turn
+    # this off to see the raw trace when debugging a bad answer. The tags are
+    # settable because the convention is not universal.
+    strip_reasoning: bool = True
+    reasoning_open_tag: str = "<think>"
+    reasoning_close_tag: str = "</think>"
+
+    # Extra JSON merged into the request body, for parameters the OpenAI wire
+    # format does not define. Stripping a reasoning trace only hides it -- the
+    # tokens are still generated and still cost the user the wait. Not
+    # generating them is far better, and that switch is vendor-specific:
+    #
+    #   vLLM / qwen3:  {"chat_template_kwargs": {"enable_thinking": false}}
+    #   others:        {"reasoning_effort": "low"}
+    #
+    # Merged last, so it can override the standard fields when a gateway needs
+    # something non-standard. Whether it reaches the model depends on the
+    # gateway passing unknown keys through; LiteLLM generally does.
+    extra_body: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("extra_headers", "extra_body", mode="before")
     @classmethod
-    def _parse_headers(cls, v: Any) -> Any:
+    def _parse_json_obj(cls, v: Any) -> Any:
         # Env vars arrive as strings; accept JSON so a ConfigMap can carry them.
         if isinstance(v, str):
             v = v.strip()

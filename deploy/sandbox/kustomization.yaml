@@ -23,6 +23,7 @@ resources:
   - ../openshift
   - 00-opensearch.yaml
   - 10-embed-stub.yaml
+  - 20-dashboards.yaml
 
 replicas:
   - { name: rag-api, count: 1 }

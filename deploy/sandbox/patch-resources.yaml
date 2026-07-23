@@ -54,3 +54,42 @@ spec:
           resources:
             requests: { cpu: "500m", memory: 3Gi }
             limits:   { cpu: "2",    memory: 5Gi }
+---
+# imagePullPolicy: Always, because the sandbox deploys the MUTABLE :latest tag.
+# The base sets IfNotPresent, which is correct at work where the pipeline
+# deploys an immutable per-commit tag. Here it meant a node that had already
+# cached :latest silently kept serving the old image: `oc rollout restart`
+# reported success, the pods came up healthy, and the code was the previous
+# build. The only symptom was that a fix "did not work".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-web
+spec:
+  template:
+    spec:
+      containers:
+        - name: web
+          imagePullPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-ocr
+spec:
+  template:
+    spec:
+      containers:
+        - name: ocr
+          imagePullPolicy: Always

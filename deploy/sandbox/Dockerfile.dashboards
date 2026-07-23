@@ -1,0 +1,19 @@
+# OpenSearch Dashboards, made runnable under OpenShift's restricted SCC.
+#
+# Same problem and same fix as Dockerfile.opensearch: the upstream image owns
+# /usr/share/opensearch-dashboards as uid 1000 with no group access, and
+# OpenShift runs the container as an arbitrary UID in group 0. Give group 0 what
+# the owner has and any assigned UID inherits it.
+#
+# Dashboards additionally writes at runtime -- it regenerates its browser bundle
+# cache under optimize/ and keeps state in data/ -- so those must stay writable
+# rather than being made read-only.
+#
+# Sandbox only. At work, Dashboards is part of the OpenSearch install and this
+# file is irrelevant.
+FROM opensearchproject/opensearch-dashboards:2.18.0
+
+USER 0
+RUN chgrp -R 0 /usr/share/opensearch-dashboards \
+ && chmod -R g=u /usr/share/opensearch-dashboards
+USER 1000

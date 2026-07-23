@@ -28,7 +28,7 @@ class OpenAICompatibleProvider(LLMProvider):
         return h
 
     def _body(self, messages: list[Message], overrides: dict, stream: bool) -> dict:
-        return {
+        body = {
             "model": self._param("model", overrides),
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "temperature": self._param("temperature", overrides),
@@ -36,6 +36,14 @@ class OpenAICompatibleProvider(LLMProvider):
             "top_p": self._param("top_p", overrides),
             "stream": stream,
         }
+        # Vendor-specific parameters, merged last so they can also override the
+        # standard fields. The OpenAI wire format is a lower bound, not a
+        # ceiling: gateways expose real capability through extra keys, and the
+        # most valuable one here is turning a reasoning model's thinking off.
+        # Measured on qwen3-8b: 10.2s/257 tokens -> 0.9s/22 tokens.
+        if self.settings.extra_body:
+            body.update(self.settings.extra_body)
+        return body
 
     async def complete(self, messages: list[Message], **overrides) -> Completion:
         try:

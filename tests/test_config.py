@@ -58,3 +58,28 @@ def test_invalid_provider_is_rejected(monkeypatch):
     monkeypatch.setenv("RAG_LLM__PROVIDER", "not_a_provider")
     with pytest.raises(Exception):
         Settings(_env_file=None)
+
+
+def test_extra_body_parses_json_from_the_environment(monkeypatch):
+    """A ConfigMap can only carry strings, so nested vendor parameters have to
+    survive a JSON round trip. This is the switch that turns a reasoning model's
+    thinking off, which is the difference between a 1s and an 18s answer."""
+    from rag_core.config import Settings, reset_settings
+
+    monkeypatch.setenv(
+        "RAG_LLM__EXTRA_BODY", '{"chat_template_kwargs":{"enable_thinking":false}}'
+    )
+    reset_settings()
+    s = Settings()
+    assert s.llm.extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
+    reset_settings()
+
+
+def test_extra_body_defaults_to_empty(monkeypatch):
+    # Absent or blank must not become a malformed body sent to every request.
+    from rag_core.config import Settings, reset_settings
+
+    monkeypatch.setenv("RAG_LLM__EXTRA_BODY", "")
+    reset_settings()
+    assert Settings().llm.extra_body == {}
+    reset_settings()

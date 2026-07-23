@@ -96,8 +96,13 @@ spec:
             - { name: RAG_EMBEDDING__PROVIDER, value: "local_onnx" }
             - { name: RAG_EMBEDDING__MODEL_PATH, value: "/models/bge-small-en-v1.5" }
           resources:
-            requests: { cpu: "100m", memory: 512Mi }
-            limits:   { cpu: "1",    memory: 1Gi }
+            # 1Gi was not enough: onnxruntime plus a batch of 32 sequences at up
+            # to 512 tokens each pushed it over and the kernel OOM-killed it
+            # mid-ingest (exit 137). The API surfaced that as the unhelpful
+            # "Server disconnected without sending a response" -- worth knowing,
+            # because that message describes the symptom, not the cause.
+            requests: { cpu: "200m", memory: 1Gi }
+            limits:   { cpu: "2",    memory: 3Gi }
           startupProbe:
             httpGet: { path: /health, port: http }
             periodSeconds: 5

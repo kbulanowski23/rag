@@ -13,6 +13,7 @@ from typing import Any
 from rag_core.config import Settings
 from rag_core.documents import SearchHit
 from rag_core.llm.base import LLMProvider, Message
+from rag_core.rag.reasoning import ReasoningStripper, strip_reasoning
 from rag_core.rag.prompt import build_messages, load_system_prompt
 from rag_core.search.retriever import HybridRetriever
 
@@ -79,10 +80,20 @@ class RagPipeline:
         completion = await self.llm.complete(messages)
         gen_ms = int((time.perf_counter() - t0) * 1000)
 
+        text = completion.text
+        if self.settings.llm.strip_reasoning:
+            text = strip_reasoning(
+                text,
+                self.settings.llm.reasoning_open_tag,
+                self.settings.llm.reasoning_close_tag,
+            )
+
         return RagAnswer(
-            answer=completion.text,
+            answer=text,
             sources=used,
-            cited_indices=extract_cited(completion.text, used),
+            # Citations are extracted from the stripped text on purpose: a [3]
+            # the model mentioned while thinking is not a citation it made.
+            cited_indices=extract_cited(text, used),
             timings_ms={"retrieval": retrieve_ms, "generation": gen_ms},
             model=completion.model,
         )
@@ -130,10 +141,30 @@ class RagPipeline:
 
         t0 = time.perf_counter()
         buffer: list[str] = []
+        # Held across tokens because the tag is routinely split mid-stream: the
+        # stripper decides how much to release and how much might be a tag.
+        stripper = (
+            ReasoningStripper(
+                self.settings.llm.reasoning_open_tag,
+                self.settings.llm.reasoning_close_tag,
+            )
+            if self.settings.llm.strip_reasoning
+            else None
+        )
         try:
             async for token in self.llm.stream(messages):
+                if stripper is not None:
+                    token = stripper.feed(token)
+                    # A token consumed entirely by the reasoning block yields
+                    # nothing to send. Emitting an empty event would make the
+                    # UI's typing cursor stutter for no reason.
+                    if not token:
+                        continue
                 buffer.append(token)
                 yield {"type": "token", "text": token}
+            if stripper is not None and (tail := stripper.flush()):
+                buffer.append(tail)
+                yield {"type": "token", "text": tail}
         except Exception as e:
             log.exception("generation failed")
             yield {"type": "error", "message": str(e)}
