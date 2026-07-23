@@ -1,0 +1,21 @@
+# OpenSearch, made runnable under OpenShift's restricted SCC.
+#
+# The upstream image ships /usr/share/opensearch owned by uid 1000 with no group
+# access. OpenShift ignores the image's USER and runs the container as a random
+# UID from the namespace's range, with group 0 -- so the container cannot even
+# stat its own entrypoint:
+#
+#   runc create failed: exec "./opensearch-docker-entrypoint.sh":
+#   stat ./opensearch-docker-entrypoint.sh: permission denied
+#
+# The fix is the same pattern our own images already use: give group 0 whatever
+# the owner has. Any UID OpenShift picks is still in group 0, so it inherits the
+# access. This is why `USER 1001` alone is not enough on OpenShift, and why
+# third-party images so often need wrapping.
+#
+# For the sandbox only. At work OpenSearch is an existing cluster.
+FROM opensearchproject/opensearch:2.18.0
+
+USER 0
+RUN chgrp -R 0 /usr/share/opensearch && chmod -R g=u /usr/share/opensearch
+USER 1000

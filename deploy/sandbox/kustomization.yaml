@@ -1,0 +1,83 @@
+# Developer Sandbox overlay -- for trying the stack on a trial cluster.
+#
+# It patches deploy/openshift rather than duplicating it, so what runs here is
+# the manifest set that ships, with only the differences a sandbox forces:
+#
+#   - images come from the namespace's own ImageStreams (built in-cluster,
+#     because there is no registry credential and no CI runner here)
+#   - one replica each, and no HPA: the sandbox has no metrics-server access
+#   - OpenSearch runs in-cluster (00-opensearch.yaml) instead of being an
+#     existing external cluster
+#   - OCR is off: its image carries torch, which is a slow build and a large
+#     pull for something already proven locally
+#   - the LLM is the sandbox's shared vLLM model rather than LiteLLM
+#
+# Apply with:  oc apply -k deploy/sandbox
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../openshift
+  - 00-opensearch.yaml
+
+replicas:
+  - { name: rag-api, count: 1 }
+  - { name: rag-web, count: 1 }
+
+# Point at the ImageStreams built in this namespace. CHANGE THE NAMESPACE to
+# your own -- `oc project -q` prints it. At work this block does not exist:
+# the pipeline sets the images with `oc set image` from the registry.
+images:
+  - name: image-registry.openshift-image-registry.svc:5000/rag/rag-api
+    newName: image-registry.openshift-image-registry.svc:5000/kbulanowski-dev/rag-api
+    newTag: latest
+  - name: image-registry.openshift-image-registry.svc:5000/rag/rag-web
+    newName: image-registry.openshift-image-registry.svc:5000/kbulanowski-dev/rag-web
+    newTag: latest
+  # Wrapped so it can run under the restricted SCC -- see Dockerfile.opensearch.
+  - name: opensearchproject/opensearch
+    newName: image-registry.openshift-image-registry.svc:5000/kbulanowski-dev/opensearch-ocp
+    newTag: latest
+  # The base expects Tika mirrored into an internal registry, which is right at
+  # work and wrong here. Pull it straight from Docker Hub for the trial.
+  - name: image-registry.openshift-image-registry.svc:5000/rag/tika
+    newName: apache/tika
+    newTag: 3.0.0.0-full
+
+patches:
+  # 00-config.yaml carries a PLACEHOLDER Secret full of "REPLACE-ME". Applying
+  # it would overwrite the real credentials created out of band -- the same trap
+  # the pipeline avoids with `oc apply --selector`. Drop it here.
+  - target: { kind: Secret, name: rag-secrets }
+    patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: Secret
+      metadata: { name: rag-secrets }
+
+  # No metrics pipeline available to a sandbox user, so the HPA would sit in a
+  # permanent "unknown" state and fight the replica count above.
+  - target: { kind: HorizontalPodAutoscaler, name: rag-api }
+    patch: |
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata: { name: rag-api }
+
+  # OCR off for this trial: torch makes the build slow and the image large, and
+  # the OCR path is already proven end to end locally.
+  - target: { kind: Deployment, name: rag-ocr }
+    patch: |
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: { name: rag-ocr }
+  - target: { kind: Service, name: rag-ocr }
+    patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata: { name: rag-ocr }
+
+  - path: patch-config.yaml
+  - path: patch-resources.yaml

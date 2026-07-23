@@ -1,0 +1,11 @@
+# Base. Applied directly at work:  oc apply -k deploy/openshift
+# The sandbox overlay in deploy/sandbox patches this rather than copying it, so
+# what gets tried on a trial cluster is the same manifest set that ships.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 00-config.yaml
+  - 10-api.yaml
+  - 20-tika-ocr.yaml
+  - 30-web.yaml

@@ -1,0 +1,84 @@
+# In-cluster image builds.
+#
+# NOT part of the production pipeline -- at work the shared GitLab CI template
+# builds and pushes, and .gitlab-ci.yml only deploys. This file exists so the
+# stack can be built and tried on a cluster where you have no registry
+# credentials and no runner, such as the Developer Sandbox.
+#
+# Source type is Binary: `oc start-build --from-dir=.` streams the working tree
+# in, so the cluster needs no access to GitLab.
+#
+#   oc apply -f deploy/openshift/50-builds.yaml
+#   oc start-build rag-api --from-dir=. --follow
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: rag-api
+  labels: { app.kubernetes.io/part-of: rag }
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: rag-web
+  labels: { app.kubernetes.io/part-of: rag }
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: rag-worker
+  labels: { app.kubernetes.io/part-of: rag }
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: rag-api
+  labels: { app.kubernetes.io/part-of: rag }
+spec:
+  source: { type: Binary }
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: services/api/Dockerfile
+  output:
+    to: { kind: ImageStreamTag, name: "rag-api:latest" }
+  resources:
+    requests: { cpu: "500m", memory: 1Gi }
+    limits:   { cpu: "2",    memory: 4Gi }
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: rag-worker
+  labels: { app.kubernetes.io/part-of: rag }
+spec:
+  source: { type: Binary }
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: services/worker/Dockerfile
+  output:
+    to: { kind: ImageStreamTag, name: "rag-worker:latest" }
+  resources:
+    requests: { cpu: "500m", memory: 1Gi }
+    limits:   { cpu: "2",    memory: 4Gi }
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: rag-web
+  labels: { app.kubernetes.io/part-of: rag }
+spec:
+  source: { type: Binary }
+  strategy:
+    type: Docker
+    dockerStrategy:
+      # Build context is web/, so the Dockerfile path is relative to it.
+      dockerfilePath: Dockerfile
+      # No NEXT_PUBLIC_API_BASE_URL build arg: the image must not know which
+      # environment it runs in. RAG_API_URL is read at runtime instead.
+  output:
+    to: { kind: ImageStreamTag, name: "rag-web:latest" }
+  resources:
+    requests: { cpu: "500m", memory: 1Gi }
+    limits:   { cpu: "2",    memory: 4Gi }

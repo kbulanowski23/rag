@@ -1,0 +1,19 @@
+# The web image builds with `web/` as its context, so the repo-root
+# .dockerignore does NOT apply here -- its `web/node_modules` entry is relative
+# to the root context and matches nothing from inside this directory.
+#
+# Without this file, `COPY . .` uploads the host's node_modules and overwrites
+# the one installed in the deps stage. On Windows the host copy carries no
+# execute bit, so the build dies with:
+#
+#   sh: /app/node_modules/.bin/next: Permission denied
+#
+# which reads like a corrupt install rather than a context problem.
+node_modules
+.next
+out
+.env
+.env.local
+*.tsbuildinfo
+npm-debug.log*
+.DS_Store

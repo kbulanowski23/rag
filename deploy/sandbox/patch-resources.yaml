@@ -1,0 +1,40 @@
+# Trim requests to fit the sandbox's 3-CPU request quota. Limits stay generous
+# because the quota's limit ceiling is 30Gi and unused limit costs nothing.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: api
+          resources:
+            requests: { cpu: "200m", memory: 1Gi }
+            limits:   { cpu: "2",    memory: 2Gi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-web
+spec:
+  template:
+    spec:
+      containers:
+        - name: web
+          resources:
+            requests: { cpu: "50m", memory: 256Mi }
+            limits:   { cpu: "1",   memory: 512Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-tika
+spec:
+  template:
+    spec:
+      containers:
+        - name: tika
+          resources:
+            requests: { cpu: "200m", memory: 1Gi }
+            limits:   { cpu: "2",    memory: 3Gi }

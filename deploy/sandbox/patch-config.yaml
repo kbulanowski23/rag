@@ -1,0 +1,41 @@
+# Sandbox values. Everything here is a value, not a code path -- which is the
+# point: the same images run at work against LiteLLM and a real OpenSearch,
+# with only these strings different.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-config
+data:
+  RAG_ENV: "sandbox"
+  RAG_LOG_LEVEL: "INFO"
+
+  # In-cluster OpenSearch from 00-opensearch.yaml. Plain http with the security
+  # plugin off, so no certs and no credentials.
+  RAG_OPENSEARCH__HOSTS: "http://opensearch:9200"
+  RAG_OPENSEARCH__VERIFY_CERTS: "false"
+  RAG_OPENSEARCH__CA_CERTS: ""
+  RAG_OPENSEARCH__NUM_SHARDS: "1"
+  RAG_OPENSEARCH__NUM_REPLICAS: "0"
+
+  # The sandbox's shared vLLM model. vLLM is OpenAI-compatible, so this is the
+  # same provider and the same code path LiteLLM will use at work -- only the
+  # URL and model name change. Served behind an OAuth proxy, hence the token in
+  # the Secret and verify_ssl off for the internal certificate.
+  RAG_LLM__PROVIDER: "openai_compatible"
+  RAG_LLM__BASE_URL: "https://isvc-qwen3-8b-fp8-predictor.sandbox-shared-models.svc.cluster.local:8443/v1"
+  RAG_LLM__MODEL: "isvc-qwen3-8b-fp8"
+  RAG_LLM__VERIFY_SSL: "false"
+  RAG_LLM__TIMEOUT_S: "180"
+
+  # Embeddings stay in-image: no dim mismatch to discover, and no second
+  # endpoint to authenticate against.
+  RAG_EMBEDDING__PROVIDER: "local_onnx"
+  RAG_EMBEDDING__MODEL_PATH: "/models/bge-small-en-v1.5"
+  RAG_EMBEDDING__DIM: "384"
+  RAG_EMBEDDING__NUM_THREADS: "2"
+
+  # Off for this trial -- see the overlay comment.
+  RAG_OCR__ENABLED: "false"
+
+  RAG_API_URL: "http://rag-api:8000"
+  RAG_API__CORS_ORIGINS: ""
