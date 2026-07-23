@@ -3,7 +3,7 @@
 # UBI is used rather than python:3.12-slim because OpenShift clusters commonly
 # restrict images to Red Hat bases, and because ubi-minimal is the one your
 # security team will already have scanned.
-ARG BASE_IMAGE=registry.access.redhat.com/ubi9/python-312:latest
+ARG BASE_IMAGE=registry.access.redhat.com/ubi8/python-312:latest
 FROM ${BASE_IMAGE} AS builder
 
 USER 0

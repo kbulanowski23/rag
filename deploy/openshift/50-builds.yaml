@@ -63,6 +63,32 @@ spec:
     requests: { cpu: "500m", memory: 1Gi }
     limits:   { cpu: "2",    memory: 4Gi }
 ---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: rag-ocr
+  labels: { app.kubernetes.io/part-of: rag }
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: rag-ocr
+  labels: { app.kubernetes.io/part-of: rag }
+spec:
+  source: { type: Binary }
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: services/ocr/Dockerfile
+  output:
+    to: { kind: ImageStreamTag, name: "rag-ocr:latest" }
+  resources:
+    # torch plus the EasyOCR weights. This is the slowest build by far and the
+    # one most likely to hit an ephemeral-storage or timeout ceiling.
+    requests: { cpu: "500m", memory: 2Gi }
+    limits:   { cpu: "2",    memory: 6Gi }
+  completionDeadlineSeconds: 3600
+---
 apiVersion: build.openshift.io/v1
 kind: BuildConfig
 metadata:

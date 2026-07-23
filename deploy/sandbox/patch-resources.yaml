@@ -38,3 +38,19 @@ spec:
           resources:
             requests: { cpu: "200m", memory: 1Gi }
             limits:   { cpu: "2",    memory: 3Gi }
+---
+# EasyOCR holds the detection and recognition models resident. Memory is the
+# real constraint; the CPU request is trimmed to fit the sandbox's 3-CPU quota,
+# which only makes OCR slower, not broken.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-ocr
+spec:
+  template:
+    spec:
+      containers:
+        - name: ocr
+          resources:
+            requests: { cpu: "500m", memory: 3Gi }
+            limits:   { cpu: "2",    memory: 5Gi }

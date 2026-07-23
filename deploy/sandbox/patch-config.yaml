@@ -27,15 +27,27 @@ data:
   RAG_LLM__VERIFY_SSL: "false"
   RAG_LLM__TIMEOUT_S: "180"
 
-  # Embeddings stay in-image: no dim mismatch to discover, and no second
-  # endpoint to authenticate against.
-  RAG_EMBEDDING__PROVIDER: "local_onnx"
-  RAG_EMBEDDING__MODEL_PATH: "/models/bge-small-en-v1.5"
+  # Embeddings SERVED, not in-process -- this is the work configuration.
+  # RemoteOpenAIEmbedder posts to {BASE_URL}/embeddings exactly as it will to
+  # LiteLLM; only the URL and model name differ. Swapping to local_onnx here
+  # would leave that whole path unexercised.
+  #
+  # DIM must match what the endpoint returns. It defines the OpenSearch vector
+  # field and is fixed at index creation -- readiness fails loudly if it is
+  # wrong, which is the check worth having on the first deploy at work.
+  RAG_EMBEDDING__PROVIDER: "openai_compatible"
+  RAG_EMBEDDING__BASE_URL: "http://embed-stub:8100/v1"
+  RAG_EMBEDDING__MODEL: "bge-small-en-v1.5"
   RAG_EMBEDDING__DIM: "384"
-  RAG_EMBEDDING__NUM_THREADS: "2"
+  # The stub applies no prefix of its own, so bge's asymmetric query prefix is
+  # still ours to send. Clear this for models that were not trained with one.
+  RAG_EMBEDDING__QUERY_PREFIX: "Represent this sentence for searching relevant passages:"
+  RAG_EMBEDDING__BATCH_SIZE: "32"
 
-  # Off for this trial -- see the overlay comment.
-  RAG_OCR__ENABLED: "false"
+  # OCR on: scanned documents are a core case, not an optional extra.
+  RAG_OCR__ENABLED: "true"
+  RAG_OCR__URL: "http://rag-ocr:9999"
+  RAG_OCR__MIN_CHARS_PER_PAGE: "120"
 
   RAG_API_URL: "http://rag-api:8000"
   RAG_API__CORS_ORIGINS: ""

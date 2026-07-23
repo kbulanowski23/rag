@@ -1,5 +1,5 @@
 # Build context is web/:  docker build -f web/Dockerfile web/
-ARG NODE_IMAGE=registry.access.redhat.com/ubi9/nodejs-20:latest
+ARG NODE_IMAGE=registry.access.redhat.com/ubi8/nodejs-20:latest
 FROM ${NODE_IMAGE} AS deps
 
 USER 0

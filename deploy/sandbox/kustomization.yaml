@@ -8,9 +8,12 @@
 #   - one replica each, and no HPA: the sandbox has no metrics-server access
 #   - OpenSearch runs in-cluster (00-opensearch.yaml) instead of being an
 #     existing external cluster
-#   - OCR is off: its image carries torch, which is a slow build and a large
-#     pull for something already proven locally
+#   - OCR is included: it is core to the product, so it is proven here rather
+#     than assumed from the local run. Its image carries torch (~3 GB) and is
+#     the slowest build by a wide margin.
 #   - the LLM is the sandbox's shared vLLM model rather than LiteLLM
+#   - embeddings are SERVED over /v1/embeddings, matching how they are consumed
+#     at work, rather than loaded in-process. See 10-embed-stub.yaml.
 #
 # Apply with:  oc apply -k deploy/sandbox
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -19,6 +22,7 @@ kind: Kustomization
 resources:
   - ../openshift
   - 00-opensearch.yaml
+  - 10-embed-stub.yaml
 
 replicas:
   - { name: rag-api, count: 1 }
@@ -37,6 +41,9 @@ images:
   # Wrapped so it can run under the restricted SCC -- see Dockerfile.opensearch.
   - name: opensearchproject/opensearch
     newName: image-registry.openshift-image-registry.svc:5000/kbulanowski-dev/opensearch-ocp
+    newTag: latest
+  - name: image-registry.openshift-image-registry.svc:5000/rag/rag-ocr
+    newName: image-registry.openshift-image-registry.svc:5000/kbulanowski-dev/rag-ocr
     newTag: latest
   # The base expects Tika mirrored into an internal registry, which is right at
   # work and wrong here. Pull it straight from Docker Hub for the trial.
@@ -63,21 +70,6 @@ patches:
       apiVersion: autoscaling/v2
       kind: HorizontalPodAutoscaler
       metadata: { name: rag-api }
-
-  # OCR off for this trial: torch makes the build slow and the image large, and
-  # the OCR path is already proven end to end locally.
-  - target: { kind: Deployment, name: rag-ocr }
-    patch: |
-      $patch: delete
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata: { name: rag-ocr }
-  - target: { kind: Service, name: rag-ocr }
-    patch: |
-      $patch: delete
-      apiVersion: v1
-      kind: Service
-      metadata: { name: rag-ocr }
 
   - path: patch-config.yaml
   - path: patch-resources.yaml

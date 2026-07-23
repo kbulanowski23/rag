@@ -30,13 +30,15 @@ cd web && npm ci && cd ..
 docker build -f services/api/Dockerfile    -t rag-api:0.1.0    .
 docker build -f services/worker/Dockerfile -t rag-worker:0.1.0 .
 docker build -f services/ocr/Dockerfile    -t rag-ocr:0.1.0    .
-docker build -f web/Dockerfile -t rag-web:0.1.0 \
-  --build-arg NEXT_PUBLIC_API_BASE_URL=https://rag-api.apps.your-cluster.example .
+docker build -f web/Dockerfile -t rag-web:0.1.0 web/
 ```
 
-`NEXT_PUBLIC_API_BASE_URL` is baked in at build time — Next inlines it. Build the
-web image with the **work** URL, not the localhost one, or the browser will call
-a host that does not exist there.
+The web image takes **no build arg**. It used to need `NEXT_PUBLIC_API_BASE_URL`
+baked in, which tied one image to one environment; the UI now calls `/api/v1/*`
+on its own origin and the web server proxies that to `RAG_API_URL`, read at
+runtime from the ConfigMap. One image crosses the gap and runs in dev, test and
+prod unchanged — which also means a wrong URL is `oc set env`, not another trip
+across the gap with a rebuilt image.
 
 ### 2. Export
 

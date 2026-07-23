@@ -1,0 +1,129 @@
+# An OpenAI-compatible /v1/embeddings endpoint, standing in for LiteLLM.
+#
+# WHY: at work embeddings are served, not embedded in the image, so the code
+# path that matters is RemoteOpenAIEmbedder -> HTTP -> /v1/embeddings. Running
+# the sandbox on local_onnx would leave that path untested and the deployment
+# would not be 1:1. The sandbox's shared models are generative only -- they
+# answer /v1/embeddings with "The model does not support Embeddings API" -- so
+# there is nothing here to point at.
+#
+# This is a TEST DOUBLE, not product code. It exists only in deploy/sandbox and
+# is never deployed at work, where LiteLLM is the real thing. It is deliberately
+# thin: it wraps the same bge-small ONNX model already baked into the rag-api
+# image and re-serves it over the wire, so the API talks to it exactly as it
+# will talk to LiteLLM -- same batching, same prefixes, same auth header, same
+# dim negotiation.
+#
+# No new image: it runs the rag-api image with an overridden command, and the
+# app is mounted from this ConfigMap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: embed-stub-src
+  labels: { app: embed-stub, app.kubernetes.io/part-of: rag }
+data:
+  stub.py: |
+    """Minimal OpenAI-compatible embeddings server backed by local ONNX."""
+    from fastapi import FastAPI
+    from pydantic import BaseModel
+    from rag_core.config import EmbeddingSettings
+    from rag_core.embeddings.local_onnx import LocalOnnxEmbedder
+
+    # Constructed explicitly rather than from get_settings(): the process-wide
+    # settings say provider=openai_compatible (that is the point of this test),
+    # and reading them here would make the stub try to call itself.
+    _settings = EmbeddingSettings(
+        provider="local_onnx",
+        model_path="/models/bge-small-en-v1.5",
+        dim=384,
+        query_prefix="",
+        passage_prefix="",
+    )
+    _embedder = LocalOnnxEmbedder(_settings)
+    app = FastAPI(title="embed-stub")
+
+
+    class Req(BaseModel):
+        model: str = ""
+        # The OpenAI API accepts a string or a list of strings.
+        input: str | list[str]
+
+
+    @app.get("/health")
+    def health() -> dict:
+        return {"ok": True, "dim": _settings.dim}
+
+
+    @app.post("/v1/embeddings")
+    def embeddings(req: Req) -> dict:
+        texts = [req.input] if isinstance(req.input, str) else req.input
+        # Passages, not queries: the caller has already applied its own prefix,
+        # so applying another here would double it.
+        vectors = _embedder.embed_passages(texts)
+        return {
+            "object": "list",
+            "model": req.model or "bge-small-en-v1.5",
+            "data": [
+                {"object": "embedding", "index": i, "embedding": v}
+                for i, v in enumerate(vectors)
+            ],
+            "usage": {"prompt_tokens": 0, "total_tokens": 0},
+        }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: embed-stub
+  labels: { app: embed-stub, app.kubernetes.io/part-of: rag }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: embed-stub }
+  template:
+    metadata:
+      labels: { app: embed-stub }
+    spec:
+      containers:
+        - name: embed-stub
+          # The rag-api image already carries onnxruntime, tokenizers, fastapi
+          # and the bge-small weights, so no separate build is needed.
+          image: image-registry.openshift-image-registry.svc:5000/kbulanowski-dev/rag-api:latest
+          command: ["uvicorn", "stub:app", "--host", "0.0.0.0", "--port", "8100", "--app-dir", "/srv"]
+          ports:
+            - { name: http, containerPort: 8100 }
+          env:
+            # Keep the stub off the shared settings entirely.
+            - { name: RAG_EMBEDDING__PROVIDER, value: "local_onnx" }
+            - { name: RAG_EMBEDDING__MODEL_PATH, value: "/models/bge-small-en-v1.5" }
+          resources:
+            requests: { cpu: "100m", memory: 512Mi }
+            limits:   { cpu: "1",    memory: 1Gi }
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: src, mountPath: /srv, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: src
+          configMap: { name: embed-stub-src }
+        - name: tmp
+          emptyDir: { sizeLimit: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: embed-stub
+  labels: { app: embed-stub }
+spec:
+  selector: { app: embed-stub }
+  ports:
+    - { name: http, port: 8100, targetPort: http }

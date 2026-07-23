@@ -2,7 +2,7 @@
 #
 # This is the heavy image (~3 GB) because of torch. It is built once and changes
 # rarely; keep it out of the frequent build/deploy loop.
-ARG BASE_IMAGE=registry.access.redhat.com/ubi9/python-312:latest
+ARG BASE_IMAGE=registry.access.redhat.com/ubi8/python-312:latest
 FROM ${BASE_IMAGE} AS builder
 
 USER 0
@@ -38,9 +38,13 @@ LABEL org.opencontainers.image.title="rag-ocr"
 USER 0
 WORKDIR /app
 
-# opencv-python-headless still needs a few shared libraries present.
-RUN microdnf install -y libglvnd-glx libgomp mesa-libGL \
- && microdnf clean all || true
+# NOTE: there was a `microdnf install libglvnd-glx libgomp mesa-libGL || true`
+# here. It never ran -- microdnf ships in ubi-minimal, not in the full UBI python
+# image, so the command was not found and `|| true` swallowed the failure for
+# every build this image has ever had. Verified on OpenShift that OCR works
+# without it: opencv-python-headless links no GL, and libgomp for torch is
+# already present in the base. Reinstating it with `dnf` would pull mesa into a
+# 3 GB image for nothing.
 
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /models/easyocr /models/easyocr
