@@ -1,0 +1,37 @@
+# Slim requirements for deployments where embeddings are SERVED, not embedded.
+#
+# Use this when RAG_EMBEDDING__PROVIDER=openai_compatible (LiteLLM or any other
+# /v1/embeddings endpoint). Build with:
+#
+#   docker build -f services/api/Dockerfile \
+#     --build-arg REQUIREMENTS=requirements-served.txt \
+#     --build-arg WITH_MODELS=false .
+#
+# What this removes, and why it matters in a classified environment:
+#
+#   onnxruntime, tokenizers, numpy   -- only ever imported by the local_onnx
+#                                       embedder and the reranker, both of which
+#                                       are unused when embeddings are served.
+#   huggingface_hub, hf-xet          -- transitive from tokenizers. Nothing in
+#                                       this codebase calls the Hub (the
+#                                       tokenizer loads from a local file), but
+#                                       the package's mere presence is a
+#                                       conversation you do not need to have.
+#   the model weights                -- ~128 MB of bge-small, and the only
+#                                       artifact in the whole build that
+#                                       originates from huggingface.co.
+#
+# 48 packages -> 31, and the HuggingFace supply chain disappears entirely.
+# Verified: the API imports, chunks, retrieves and answers with none of the
+# above installed.
+#
+# Trade-off: chunking falls back to ApproxTokenizer (chars/4) for token counts.
+# It is an estimate, so leave headroom under the embedding model's real limit --
+# see the note on RAG_CHUNKING__MAX_TOKENS in MIGRATION.md.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pydantic==2.10.4
+pydantic-settings==2.7.0
+httpx==0.28.1
+opensearch-py==2.8.0

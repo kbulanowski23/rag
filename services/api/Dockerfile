@@ -9,7 +9,11 @@ FROM ${BASE_IMAGE} AS builder
 USER 0
 WORKDIR /build
 
-COPY services/api/requirements.txt ./requirements.txt
+# requirements-served.txt drops onnxruntime/tokenizers/numpy -- and with them
+# huggingface_hub -- for deployments where embeddings come from LiteLLM rather
+# than from a model inside this image. 48 packages become 31.
+ARG REQUIREMENTS=requirements.txt
+COPY services/api/${REQUIREMENTS} ./requirements.txt
 COPY packages/rag_core /build/packages/rag_core
 
 # --no-deps on rag_core: its dependencies are already pinned in requirements.txt
@@ -31,9 +35,26 @@ WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
 COPY services/api/app /app/app
+
 # Model weights are baked in. Nothing is fetched at runtime -- this is the whole
 # point of the air-gap design. Run ops/fetch_models.py before building.
-COPY deploy/models/bge-small-en-v1.5 /models/bge-small-en-v1.5
+#
+# WITH_MODELS=false skips them, for served-embedding deployments. The weights
+# are the only artifact in this whole build that originates from huggingface.co,
+# so omitting them removes that supply chain from the image entirely.
+#
+# deploy/models is always present in git (it carries README.md and SHA256SUMS),
+# so this COPY succeeds even when the weights were never fetched -- the normal
+# case at work, where nothing from huggingface.co exists in the build context.
+ARG WITH_MODELS=true
+COPY deploy/models /models-src
+RUN mkdir -p /models \
+ && if [ "$WITH_MODELS" = "true" ]; then \
+        cp -r /models-src/bge-small-en-v1.5 /models/ ; \
+    else \
+        echo "no local weights: embeddings are served" > /models/NO_MODELS ; \
+    fi \
+ && rm -rf /models-src
 
 ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
