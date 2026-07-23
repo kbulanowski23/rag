@@ -46,6 +46,7 @@ def search(req: SearchRequest, c: Container = Depends(get_container)) -> SearchR
                 title=h.title or h.filename, filename=h.filename,
                 source_uri=h.source_uri, page_start=h.page_start, page_end=h.page_end,
                 score=round(h.score, 5), extraction_source=h.extraction_source,
+                classification=h.classification, acl=h.acl,
                 retrievers=h.retrievers, text=h.text,
             )
             for i, h in enumerate(hits, start=1)

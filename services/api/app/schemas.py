@@ -31,6 +31,11 @@ class SourceOut(BaseModel):
     page_end: int = 0
     score: float = 0.0
     extraction_source: str = ""
+    # Returned so a caller can show what it retrieved and why it was allowed.
+    # Filtering on these already worked; without them in the response the labels
+    # were invisible to the client, which makes an access decision unauditable.
+    classification: str = ""
+    acl: list[str] = Field(default_factory=list)
     retrievers: dict[str, int] = Field(default_factory=dict)
     text: str = ""
 

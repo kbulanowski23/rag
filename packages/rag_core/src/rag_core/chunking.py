@@ -206,6 +206,10 @@ class Chunker:
                         title=doc.title or doc.filename,
                         source_uri=doc.source_uri,
                         metadata=dict(doc.metadata),
+                        # Copied, not referenced: a chunk's labels must not
+                        # change if the Document object is later mutated.
+                        classification=doc.classification,
+                        acl=list(doc.acl),
                     )
                 )
             # Carry the tail of this window into the next one so a fact split
@@ -252,6 +256,10 @@ class Chunker:
                         title=doc.title or doc.filename,
                         source_uri=doc.source_uri,
                         metadata=dict(doc.metadata),
+                        # Copied, not referenced: a chunk's labels must not
+                        # change if the Document object is later mutated.
+                        classification=doc.classification,
+                        acl=list(doc.acl),
                     )
                 )
         return chunks

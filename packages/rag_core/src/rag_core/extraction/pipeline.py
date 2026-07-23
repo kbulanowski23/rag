@@ -138,7 +138,7 @@ class IngestPipeline:
 
     def extract(
         self, data: bytes, filename: str, source_uri: str = "", content_type: str = "",
-        metadata: dict | None = None,
+        metadata: dict | None = None, classification: str = "", acl: list[str] | None = None,
     ) -> tuple[Document, int]:
         meta = self.tika.extract_metadata(data, filename, content_type)
         detected = content_type or str(meta.get("Content-Type", "") or "")
@@ -164,6 +164,10 @@ class IngestPipeline:
             checksum=checksum,
             pages=pages,
             metadata=metadata or {},
+            # Set by whoever loads the corpus. Unlike `metadata` these are
+            # indexed, so they can actually be filtered on.
+            classification=classification,
+            acl=list(acl or []),
         )
         return doc, ocr_count
 
@@ -172,13 +176,16 @@ class IngestPipeline:
     def ingest_bytes(
         self, data: bytes, filename: str, source_uri: str = "", content_type: str = "",
         metadata: dict | None = None, refresh: bool = False,
+        classification: str = "", acl: list[str] | None = None,
     ) -> IngestResult:
         timings: dict[str, int] = {}
         errors: list[str] = []
 
         t0 = time.perf_counter()
         try:
-            doc, ocr_count = self.extract(data, filename, source_uri, content_type, metadata)
+            doc, ocr_count = self.extract(
+                data, filename, source_uri, content_type, metadata, classification, acl
+            )
         except TikaError as e:
             return IngestResult(
                 doc_id="", filename=filename, pages=0, chunks_indexed=0,

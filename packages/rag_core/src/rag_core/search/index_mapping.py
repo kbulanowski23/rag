@@ -70,6 +70,21 @@ def build_mapping(s: OpenSearchSettings, dim: int) -> dict[str, Any]:
                 "filename": {"type": "keyword", "fields": {"text": {"type": "text"}}},
                 "title": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 512}}},
                 "source_uri": {"type": "keyword"},
+                # Access-control attributes. First-class and indexed, NOT inside
+                # `metadata` -- that object is `enabled: false`, so a filter on
+                # it silently matches nothing rather than erroring, which is the
+                # worst possible failure mode for an access control.
+                #
+                # Mappings are fixed at index creation: adding these later means
+                # reindexing the whole corpus, so they exist from the start even
+                # while unused. A null value costs nothing in a keyword field.
+                #
+                # `classification` is a single label (UNCLASSIFIED, SECRET, ...).
+                # `acl` is a list: the groups or attributes a caller must hold.
+                # Enforcement belongs in the API's route layer, derived from the
+                # authenticated identity -- never from a client-supplied filter.
+                "classification": {"type": "keyword"},
+                "acl": {"type": "keyword"},
                 "indexed_at": {"type": "date"},
                 # Arbitrary business metadata. `false` means stored and
                 # returnable but not indexed -- add explicit fields above for

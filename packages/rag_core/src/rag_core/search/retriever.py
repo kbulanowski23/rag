@@ -28,6 +28,7 @@ log = logging.getLogger(__name__)
 _SOURCE_FIELDS = [
     "chunk_id", "doc_id", "text", "ordinal", "page_start", "page_end",
     "filename", "title", "source_uri", "extraction_source", "metadata",
+    "classification", "acl",
 ]
 
 

@@ -132,6 +132,8 @@ class RagPipeline:
                     "score": round(h.score, 5),
                     "retrievers": h.retrievers,
                     "extraction_source": h.extraction_source,
+                    "classification": h.classification,
+                    "acl": h.acl,
                     "text": h.text,
                 }
                 for i, h in enumerate(used, start=1)

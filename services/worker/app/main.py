@@ -90,6 +90,10 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         return 2
 
     metadata = json.loads(args.metadata) if args.metadata else {}
+    acl = [a.strip() for a in args.acl.split(",") if a.strip()]
+    if args.classification or acl:
+        log.info("labelling every chunk: classification=%r acl=%s",
+                 args.classification, acl or "[]")
     pipeline, admin = build_pipeline()
 
     if not admin.exists():
@@ -109,6 +113,8 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             source_uri=args.uri_prefix + source_uri,
             metadata=metadata,
             refresh=False,
+            classification=args.classification,
+            acl=acl,
         )
 
     # Threads, not processes: the work is dominated by waiting on Tika and OCR,
@@ -165,7 +171,13 @@ def main(argv: list[str] | None = None) -> int:
     p_ing.add_argument("--recursive", action="store_true", default=True)
     p_ing.add_argument("--no-recursive", dest="recursive", action="store_false")
     p_ing.add_argument("--workers", type=int, default=4)
-    p_ing.add_argument("--metadata", default="", help="JSON attached to every chunk")
+    p_ing.add_argument("--metadata", default="", help="JSON attached to every chunk (NOT indexed)")
+    # These are indexed and filterable; --metadata is not. Bulk loading is the
+    # normal way a corpus gets labelled, so the flags live here first.
+    p_ing.add_argument("--classification", default="",
+                       help="security label applied to every chunk, e.g. UNCLASSIFIED")
+    p_ing.add_argument("--acl", default="",
+                       help="comma-separated groups/attributes required to retrieve these chunks")
     p_ing.add_argument("--uri-prefix", default="", help="prepended to each source_uri")
     p_ing.add_argument("--absolute-uri", action="store_true")
     p_ing.set_defaults(func=cmd_ingest)

@@ -46,8 +46,12 @@ class Document:
     size_bytes: int = 0
     checksum: str = ""
     pages: list[Page] = field(default_factory=list)
-    # Free-form, indexed as a flat object: security labels, business unit, tags.
+    # Free-form and NOT indexed (metadata is `enabled: false` in the mapping):
+    # good for provenance you want returned, useless for filtering.
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Indexed and filterable. Set at ingest by whoever loads the corpus.
+    classification: str = ""
+    acl: list[str] = field(default_factory=list)
 
     @property
     def text(self) -> str:
@@ -71,6 +75,11 @@ class Chunk:
     title: str = ""
     source_uri: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Inherited from the document at chunk time. Access control is evaluated
+    # against chunks because chunks are what retrieval returns; a document whose
+    # classification changes must be re-ingested, not updated in place.
+    classification: str = ""
+    acl: list[str] = field(default_factory=list)
     embedding: list[float] | None = None
 
     def to_os_doc(self) -> dict[str, Any]:
@@ -89,6 +98,8 @@ class Chunk:
             "title": self.title,
             "source_uri": self.source_uri,
             "metadata": self.metadata,
+            "classification": self.classification,
+            "acl": self.acl,
             "indexed_at": utcnow_iso(),
         }
         if self.embedding is not None:
@@ -110,6 +121,8 @@ class SearchHit:
     ordinal: int = 0
     extraction_source: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    classification: str = ""
+    acl: list[str] = field(default_factory=list)
     # Provenance for debugging relevance: which retriever(s) surfaced this and
     # at what rank. Rendered in the UI's inspector panel.
     retrievers: dict[str, int] = field(default_factory=dict)
@@ -130,6 +143,8 @@ class SearchHit:
             ordinal=src.get("ordinal", 0),
             extraction_source=src.get("extraction_source", ""),
             metadata=src.get("metadata", {}) or {},
+            classification=src.get("classification", "") or "",
+            acl=src.get("acl", []) or [],
         )
 
     def citation_label(self) -> str:

@@ -19,6 +19,11 @@ async def ingest(
     source_uri: str = Form(""),
     metadata: str = Form(""),
     refresh: bool = Form(True),
+    # Indexed and filterable, unlike `metadata`. Whoever loads the corpus sets
+    # them; retrieval-time enforcement belongs in the route layer, derived from
+    # the authenticated caller and never from a client-supplied filter.
+    classification: str = Form(""),
+    acl: str = Form(""),
     c: Container = Depends(get_container),
 ) -> IngestResponse:
     """Synchronous single-file ingest.
@@ -37,6 +42,10 @@ async def ingest(
     if not data:
         raise HTTPException(status_code=400, detail="empty file")
 
+    # Comma-separated: a multipart form cannot carry a JSON array cleanly and
+    # this is the shape a curl-driven bulk load actually uses.
+    acl_list = [a.strip() for a in acl.split(",") if a.strip()]
+
     extra: dict = {}
     if metadata:
         try:
@@ -54,6 +63,8 @@ async def ingest(
         file.content_type or "",
         extra,
         refresh,
+        classification,
+        acl_list,
     )
 
     return IngestResponse(
